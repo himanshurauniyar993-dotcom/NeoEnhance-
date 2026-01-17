@@ -142,20 +142,26 @@ const App: React.FC = () => {
       const hasKey = await (window as any).aistudio.hasSelectedApiKey();
       if (!hasKey) await (window as any).aistudio.openSelectKey();
     } catch (err) { console.warn(err); }
+    
     if (!deductCredit()) return;
+    
     setIsProcessing(true);
     setError(null);
+    
     try {
       const gemini = GeminiService.getInstance();
       const result = await gemini.enhanceImage(originalImage, selectedStyle.prompt, chatInput);
       setEnhancedImage(result);
       setViewMode('result');
     } catch (err: any) {
+      console.error("Enhancement failed:", err);
       if (err?.message?.includes("Requested entity was not found.")) {
-        setError("Select a paid API key for 8K Processing.");
+        setError("Invalid Key Error. Select a valid API key.");
         await (window as any).aistudio.openSelectKey();
+      } else if (err?.message?.includes("Safety")) {
+        setError("Safety Filter: Image content flagged.");
       } else {
-        setError("Matrix Synthesis Error.");
+        setError(err.message || "Synthesis Failed. Try again.");
       }
     } finally {
       setIsProcessing(false);
@@ -163,6 +169,14 @@ const App: React.FC = () => {
   };
 
   const handleAdminAction = (userId: string, action: 'add_credit' | 'rem_credit' | 'set_role' | 'toggle_suspend', value?: any) => {
+    // SECURITY: Ensure only admins can execute these actions on the backend matrix
+    if (!currentUser?.isAdmin && userId !== currentUser?.id) return;
+    // SECURITY: Non-admins cannot set their own role or credits
+    if (!currentUser?.isAdmin && (action === 'set_role' || action === 'add_credit' || action === 'rem_credit' || action === 'toggle_suspend')) {
+      setError("Unauthorized Operation.");
+      return;
+    }
+
     const user = users.find(u => u.id === userId);
     if (!user) return;
     let updated = { ...user };
@@ -206,10 +220,9 @@ const App: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-        {/* Left: Web Settings (Sitting) */}
         <div className="lg:col-span-5 space-y-10">
           <div className="glass-panel p-10 rounded-[3rem] space-y-8 border-white/10">
-            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Infrastructure Core (Sitting)</h3>
+            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Infrastructure Core</h3>
             <div className="space-y-6">
               <div className="grid grid-cols-1 gap-6">
                 <div className="space-y-2">
@@ -233,7 +246,6 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-
           <div className="glass-panel p-8 rounded-[2.5rem] border-white/10 space-y-6">
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Diagnostic Node</h3>
@@ -246,10 +258,9 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Right: Identity Index (Unit/Role Management) */}
         <div className="lg:col-span-7 glass-panel p-10 rounded-[3rem] space-y-10 border-white/10">
           <div className="flex justify-between items-center">
-            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Identity Index (Management)</h3>
+            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Identity Index</h3>
             <span className="text-[10px] font-black px-4 py-1.5 bg-blue-600/20 text-blue-400 rounded-full border border-blue-500/20">{users.length} Nodes</span>
           </div>
           <div className="space-y-4 max-h-[800px] overflow-y-auto pr-4 custom-scrollbar">
@@ -269,21 +280,15 @@ const App: React.FC = () => {
                     </span>
                   </div>
                 </div>
-                
                 <div className="flex flex-wrap items-center gap-4 pt-4 border-t border-white/5">
                   <div className="flex-1 min-w-[150px] space-y-2">
                     <label className="text-[8px] font-black uppercase text-zinc-700">Role Status</label>
-                    <select 
-                      value={u.role} 
-                      onChange={(e) => handleAdminAction(u.id, 'set_role', e.target.value)}
-                      className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-[10px] font-bold outline-none cursor-pointer"
-                    >
+                    <select value={u.role} onChange={(e) => handleAdminAction(u.id, 'set_role', e.target.value)} className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-2 text-[10px] font-bold outline-none cursor-pointer">
                       <option value="free">Free Node</option>
                       <option value="subscriber">Subscriber Node</option>
                       <option value="vip">VIP Node (Infinite)</option>
                     </select>
                   </div>
-                  
                   <div className="space-y-2">
                     <label className="text-[8px] font-black uppercase text-zinc-700">Balance ({u.role === 'vip' ? '∞' : u.credits})</label>
                     <div className="flex items-center gap-2">
@@ -291,13 +296,9 @@ const App: React.FC = () => {
                       <button onClick={() => handleAdminAction(u.id, 'add_credit')} className="p-2 bg-white/5 hover:bg-green-500/20 rounded-lg transition-all">+</button>
                     </div>
                   </div>
-
                   <div className="space-y-2">
                     <label className="text-[8px] font-black uppercase text-zinc-700">Access</label>
-                    <button 
-                      onClick={() => handleAdminAction(u.id, 'toggle_suspend')}
-                      className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${u.isSuspended ? 'bg-red-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}
-                    >
+                    <button onClick={() => handleAdminAction(u.id, 'toggle_suspend')} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${u.isSuspended ? 'bg-red-600 text-white' : 'bg-zinc-800 text-zinc-400'}`}>
                       {u.isSuspended ? 'Revoke Suspension' : 'Suspend Node'}
                     </button>
                   </div>
@@ -320,6 +321,7 @@ const App: React.FC = () => {
             <span className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-white/10 ${currentUser?.role === 'vip' ? 'text-amber-500 bg-amber-500/5' : 'bg-white/5'}`}>
               {currentUser?.role} Member
             </span>
+            {currentUser?.isAdmin && <span className="px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest bg-blue-500/10 text-blue-400 border border-blue-500/10">Administrator</span>}
           </div>
         </div>
         <button onClick={() => { setCurrentUser(null); setActiveTab('home'); }} className="px-10 py-4 bg-red-600/10 text-red-500 border border-red-600/20 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-red-600 hover:text-white transition-all">Disconnect</button>
@@ -330,25 +332,40 @@ const App: React.FC = () => {
           <p className="text-7xl font-black gradient-text">{currentUser?.role === 'vip' ? '∞' : currentUser?.credits}</p>
           <p className="text-[10px] uppercase font-bold text-zinc-800 tracking-widest">Reconstruction Units</p>
         </div>
-        <div className="lg:col-span-2 glass-panel p-10 rounded-[3rem] space-y-8">
-          <div className="flex justify-between items-center">
-            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Identity Upgrade Matrix</h3>
-            <button onClick={deductCredit} className="text-[8px] font-black uppercase px-4 py-1 bg-white/5 rounded-full hover:bg-white/10 border border-white/10">Simulate Usage Test</button>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <button onClick={() => handleAdminAction(currentUser!.id, 'add_credit')} className="p-6 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 text-left transition-all group">
-              <p className="text-xs font-black uppercase tracking-widest group-hover:text-blue-400 transition-colors">Refill Units</p>
-              <p className="text-[10px] text-zinc-600 mt-1">Acquire 5 Reconstruction Units instantly.</p>
-            </button>
-            <button onClick={() => handleAdminAction(currentUser!.id, 'set_role', 'vip')} className="p-6 rounded-2xl border border-blue-500/20 bg-blue-500/5 hover:bg-blue-500/10 text-left transition-all group">
-              <p className="text-xs font-black uppercase tracking-widest text-blue-400">Unlock VIP ∞</p>
-              <p className="text-[10px] text-zinc-600 mt-1">Unlimited 8K processing & priority queue.</p>
-            </button>
-          </div>
-          {currentUser?.isAdmin && (
+        
+        {/* IDENTITY UPGRADE MATRIX - ONLY ACCESSIBLE TO ADMINS */}
+        {currentUser?.isAdmin ? (
+          <div className="lg:col-span-2 glass-panel p-10 rounded-[3rem] space-y-8 animate-in fade-in">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">Identity Upgrade Matrix (Admin)</h3>
+              <button onClick={deductCredit} className="text-[8px] font-black uppercase px-4 py-1 bg-white/5 rounded-full hover:bg-white/10 border border-white/10">Simulate Logic Test</button>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <button onClick={() => handleAdminAction(currentUser.id, 'add_credit')} className="p-6 rounded-2xl border border-white/5 bg-white/5 hover:bg-white/10 text-left transition-all group">
+                <p className="text-xs font-black uppercase tracking-widest group-hover:text-blue-400 transition-colors">Refill Units</p>
+                <p className="text-[10px] text-zinc-600 mt-1">Acquire 5 Reconstruction Units instantly.</p>
+              </button>
+              <button onClick={() => handleAdminAction(currentUser.id, 'set_role', 'vip')} className="p-6 rounded-2xl border border-blue-500/20 bg-blue-500/5 hover:bg-blue-500/10 text-left transition-all group">
+                <p className="text-xs font-black uppercase tracking-widest text-blue-400">Unlock VIP ∞</p>
+                <p className="text-[10px] text-zinc-600 mt-1">Unlimited 8K processing & priority queue.</p>
+              </button>
+            </div>
             <button onClick={() => setActiveTab('admin')} className="w-full py-6 bg-blue-600 text-white rounded-2xl font-black uppercase text-xs tracking-[0.5em] shadow-xl hover:bg-blue-500 transition-all">Open Command Center</button>
-          )}
-        </div>
+          </div>
+        ) : (
+          <div className="lg:col-span-2 glass-panel p-10 rounded-[3rem] space-y-8 flex flex-col justify-center text-center">
+            <h3 className="text-xs font-black uppercase tracking-widest text-zinc-500">System Status</h3>
+            <div className="space-y-4">
+              <div className="inline-flex items-center gap-2 px-6 py-3 bg-green-500/10 text-green-500 rounded-full border border-green-500/20">
+                <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Identity Online</span>
+              </div>
+              <p className="text-zinc-600 text-xs font-medium max-w-sm mx-auto">
+                Your neural link is active. To refill units or upgrade to VIP, please contact the local administrator.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -371,21 +388,19 @@ const App: React.FC = () => {
               const file = e.target.files?.[0];
               if (file) {
                 const reader = new FileReader();
-                reader.onload = ev => setOriginalImage(ev.target?.result as string);
+                reader.onload = ev => {
+                  setOriginalImage(ev.target?.result as string);
+                  setEnhancedImage(null);
+                };
                 reader.readAsDataURL(file);
               }
             }} />
           </label>
         </div>
-
         <div className="space-y-4">
           <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600 px-4">2. Neural Style</h3>
           {ENHANCEMENT_STYLES.map(s => (
-            <button 
-              key={s.id} 
-              onClick={() => setSelectedStyle(s)} 
-              className={`w-full p-5 rounded-2xl border flex items-center gap-4 transition-all ${selectedStyle.id === s.id ? 'bg-white text-black border-white scale-105 shadow-xl' : 'bg-white/5 border-white/5 text-white hover:bg-white/10'}`}
-            >
+            <button key={s.id} onClick={() => setSelectedStyle(s)} className={`w-full p-5 rounded-2xl border flex items-center gap-4 transition-all ${selectedStyle.id === s.id ? 'bg-white text-black border-white scale-105 shadow-xl' : 'bg-white/5 border-white/5 text-white hover:bg-white/10'}`}>
               <span className="text-xl">{s.icon}</span>
               <div className="text-left overflow-hidden">
                 <p className="text-[9px] font-black uppercase tracking-widest">{s.name}</p>
@@ -394,38 +409,25 @@ const App: React.FC = () => {
             </button>
           ))}
         </div>
-
         <div className="glass-panel p-6 rounded-[2.5rem] space-y-4">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600">3. Neural Instructions (Chat)</h3>
-          <textarea 
-            value={chatInput}
-            onChange={(e) => setChatInput(e.target.value)}
-            placeholder="E.g. Change eye color to neon green, add cinematic fog..."
-            className="w-full h-24 bg-black/40 border border-white/5 rounded-2xl p-4 text-[11px] font-bold text-white placeholder-zinc-700 focus:border-blue-500 outline-none transition-all resize-none custom-scrollbar"
-          />
+          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-600">3. Neural Instructions</h3>
+          <textarea value={chatInput} onChange={(e) => setChatInput(e.target.value)} placeholder="E.g. Change eye color to neon green, add cinematic fog..." className="w-full h-24 bg-black/40 border border-white/5 rounded-2xl p-4 text-[11px] font-bold text-white placeholder-zinc-700 focus:border-blue-500 outline-none transition-all resize-none custom-scrollbar" />
         </div>
-
-        <button 
-          disabled={!originalImage || isProcessing} 
-          onClick={handleEnhance} 
-          className="w-full py-6 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl font-black uppercase tracking-[0.4em] text-[10px] hover:scale-105 transition-all shadow-xl disabled:opacity-20 active:scale-95"
-        >
+        <button disabled={!originalImage || isProcessing} onClick={handleEnhance} className="w-full py-6 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl font-black uppercase tracking-[0.4em] text-[10px] hover:scale-105 transition-all shadow-xl disabled:opacity-20 active:scale-95">
           {isProcessing ? 'Synthesizing...' : 'Execute Reconstruction'}
         </button>
       </aside>
-
       <main className="flex-1 space-y-8 animate-in slide-in-from-right-5">
         <div className="flex bg-white/5 p-2 rounded-2xl w-fit backdrop-blur-3xl border border-white/5">
           <button onClick={() => setViewMode('compare')} className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'compare' ? 'bg-white text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>Scan View</button>
           <button onClick={() => setViewMode('result')} className={`px-8 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'result' ? 'bg-white text-black shadow-lg' : 'text-zinc-500 hover:text-white'}`}>8K Masterpiece</button>
         </div>
-
         <div className="glass-panel p-2 rounded-[3rem] aspect-video flex items-center justify-center bg-black/40 overflow-hidden relative border-white/5 shadow-2xl">
           {enhancedImage ? (
             viewMode === 'compare' ? (
               <ComparisonSlider before={originalImage!} after={enhancedImage} />
             ) : (
-              <img src={enhancedImage} className="w-full h-full object-cover rounded-[2.8rem]" alt="e" />
+              <img src={enhancedImage} className="w-full h-full object-contain rounded-[2.8rem]" alt="e" />
             )
           ) : isProcessing ? (
             <div className="text-center space-y-6">

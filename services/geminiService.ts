@@ -3,11 +3,9 @@ import { GoogleGenAI } from "@google/genai";
 
 export class GeminiService {
   private static instance: GeminiService;
-  private ai: GoogleGenAI;
 
   private constructor() {
-    // Initializing Gemini API with the mandatory apiKey parameter from environment variables.
-    this.ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // Constructor is empty as we instantiate GoogleGenAI right before each call to ensure fresh configuration.
   }
 
   public static getInstance(): GeminiService {
@@ -23,6 +21,9 @@ export class GeminiService {
     chatContext: string = ''
   ): Promise<string> {
     try {
+      // Obtain the API key exclusively from process.env.API_KEY.
+      // We create a fresh instance of GoogleGenAI per call as recommended for Gemini 3 and Veo series.
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const cleanBase64 = base64Image.split(',')[1] || base64Image;
       
       const isViralStyle = stylePrompt.toLowerCase().includes('youtube');
@@ -39,8 +40,9 @@ Guidelines:
 4. Remove noise and artifacts.
 5. Output ONLY the resulting image.`;
 
-      const response = await this.ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+      // Upgraded to 'gemini-3-pro-image-preview' as the application targets high-quality "8K" results.
+      const response = await ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview',
         contents: {
           parts: [
             {
@@ -57,11 +59,13 @@ Guidelines:
         config: {
             imageConfig: {
                 aspectRatio: targetRatio as any,
+                // Setting to 4K for maximum quality consistent with the app's branding.
+                imageSize: '4K'
             }
         }
       });
 
-      // Iterating through parts to find the image part as per guidelines.
+      // Iterating through all parts of the response to locate the image part.
       if (response.candidates && response.candidates[0].content.parts) {
         for (const part of response.candidates[0].content.parts) {
           if (part.inlineData) {
